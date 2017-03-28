@@ -1,6 +1,6 @@
 
 
-#include "copy_roi.h"
+//#include "copy_roi.h"
 
 #include <string>
 #include <vector>
@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <sstream>
 #include <fstream>
+#include <iostream>
 
 using str = std::string;
 template<typename T>
@@ -135,12 +136,25 @@ int fileopen(FILE** f, const char* path, const char* flags)
 #endif
 }
 
+static bool endsWith (std::string const &fullString, std::string const &ending) {
+    if (fullString.length() >= ending.length()) {
+        return (0 == fullString.compare (fullString.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
+    }
+}
+
+
 int main(int argc, char* argv[])
 {
   sz default_img_index = 1;
   str default_imgs[] = { "lsm", "tiles", "time" };
   str in_filename = argc > 1 ? str(argv[1]) : "../data/" + default_imgs[default_img_index];
-  str out_filename = argc > 2 ? str(argv[2]) : "../data/raw";
+  str out_filename = argc > 3 ? str(argv[3]) : "stdout";
+
+  str suffix = argc > 2 ? argv[2] : "";
+
+  bool dump = out_filename == "stdout";
 
   //auto in = fopen(in_filename.c_str(), "rb");
   FILE* in;
@@ -180,12 +194,18 @@ int main(int argc, char* argv[])
   std::fill_n(dimSize, 128, 1);
   for (i32 i = 0; i < dirCount; i++) {
     i32 dimCount = directoryEntries[i].DimensionCount;
+    if (!dump) {
+		std::cout << " - Directory " << i << std::endl;
+	}
     for (i32 j = 0; j < dimCount; j++) {
       const auto& entryDim = directoryEntryDimensions[i][j];
       auto& size = dimSize[entryDim.Dimension[0]];
       if (entryDim.Start + entryDim.Size > size) {
         size = entryDim.Start + entryDim.Size;
       }
+    if (!dump) {
+	  std::cout << "   - Dim " << entryDim.Dimension << " [" << entryDim.Start << ", " << entryDim.Size << "]" << std::endl;
+  }
     }
   }
 
@@ -236,18 +256,28 @@ int main(int argc, char* argv[])
   i32 pixelSize = directoryEntries[0].PixelType == 1 ? 2 : directoryEntries[0].PixelType == 2 ? 4 : 1;
 
   const i32* sizeXYZ = dimSize + 'X';
-  i64 bufSize = (i64)sizeXYZ[0] * sizeXYZ[1] * sizeXYZ[2] * pixelSize;
+
+if (!dump) {
+  std::cout << " - Images " << numFiles << " [" << sizeXYZ[0] << ", " << sizeXYZ[1] << ", " << sizeXYZ[2] << "] " << pixelSize * 8 << "bps" << std::endl;
+}
+// * sizeXYZ[2]
+  i64 bufSize = (i64)sizeXYZ[0] * sizeXYZ[1] * pixelSize;
+  
+  if (argc < 3) {
+	bufSize = 0;
+  }
+    
   vec<char> block(bufSize);
   vec<char> image(bufSize);
 
-  v3 imageSize3{ sizeXYZ[0] * pixelSize, sizeXYZ[1], sizeXYZ[2] };
-  v3 zero{ 0, 0, 0 };
+  //v3 imageSize3{ sizeXYZ[0] * pixelSize, sizeXYZ[1], sizeXYZ[2] };
+  //v3 zero{ 0, 0, 0 };
 
   SubBlockSegment subBlockSegment;
   for (i32 f = 0; f < numFiles; f++) {
     auto& dirs = dirsPerFile[f];
     if (dirs.empty()) continue;
-    // std::sort(dirs.begin(), dirs.end(), [](const Dir& a, const Dir& b){ return a.indexZ < b.indexZ; }); // sort by z and write slices!
+    std::sort(dirs.begin(), dirs.end(), [](const Dir& a, const Dir& b){ return a.startXYZ[2] < b.startXYZ[2]; }); // sort by z and write slices!
 
     std::ostringstream fn;
     fn << out_filename;
@@ -260,13 +290,55 @@ int main(int argc, char* argv[])
         fn << "_" << entryDim.Dimension << entryDim.Start;
       }
     }
-
+    
     auto name = fn.str();
-    std::ofstream meta(name + "_meta.txt", std::ios::trunc | std::ios::binary);
-    meta << "size XYZ: [" << sizeXYZ[0] << ", " << sizeXYZ[1] << ", " << sizeXYZ[2] << "]" << std::endl;
+    if (!suffix.empty() && !endsWith(name, suffix)) {
+		continue;
+	}
+    
+    if (bufSize == 0) {
+		std::cout << "Image " << f << ": " << name << std::endl;
+		continue;
+	}
 
-    //std::fill(image.begin(), image.end(), 0);
+    //std::ofstream meta(name + "_meta.txt", std::ios::trunc | std::ios::binary);
+    //meta << "size XYZ: [" << sizeXYZ[0] << ", " << sizeXYZ[1] << ", " << sizeXYZ[2] << "]" << std::endl;
 
+  if (true) {
+    FILE* out;
+    if (!dump && fileopen(&out, (name + "_data.raw").c_str(), "wb") != 0) {
+      continue;
+    }
+    for (i32 i = 0; i < dirs.size(); i++) {
+      const auto& dir = directoryEntries[dirs[i].index];
+      seek(dir.FilePosition, in);
+      read(sh, in);
+      read(subBlockSegment, in);
+      seek(dir.FilePosition + i64(sizeof(sh) + 256) + subBlockSegment.MetadataSize, in);
+      
+      sz size = (sz)subBlockSegment.DataSize;
+      if (image.size() < size) {
+        image.resize(size);
+      }
+      read(image[0], in, (i32)size);
+      
+    if (!dump) {
+      fwrite(image.data(), 1, bufSize, out);
+    }
+    else {
+	  //std::cout 
+	  fwrite(image.data(), 1, bufSize, stdout);
+	}
+	
+    }
+    if (!dump) {
+      fclose(out);
+    }
+      continue;
+  }
+
+    //std::fill(image.begin(), image.end(), 0);    
+/*
     for (i32 i = 0; i < dirs.size(); i++) {
       const auto& dir = directoryEntries[dirs[i].index];
       seek(dir.FilePosition, in);
@@ -284,7 +356,7 @@ int main(int argc, char* argv[])
       v3 blockSize3{ bs[0] * pixelSize, bs[1], bs[2] };
       copy_roi(block.data(), image.data(), blockSize3, imageSize3, zero, v3{ rs[0] * pixelSize, rs[1], rs[2] }, blockSize3);
     }
-
+*/
     FILE* out;
     if (fileopen(&out, (name + "_data.raw").c_str(), "wb") != 0) {
       continue;
