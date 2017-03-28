@@ -118,8 +118,21 @@ void read(T& data, FILE* in, int count = 1)
 
 void seek(i64 pos, FILE* f)
 {
+#ifdef GCC
+  fseeko(f, pos, SEEK_SET);
+#else
   _fseeki64(f, pos, SEEK_SET);
-  //fseek(f, pos, SEEK_SET);
+#endif
+}
+
+int fileopen(FILE** f, const char* path, const char* flags)
+{
+#ifdef GCC
+  *f = fopen(path, flags);
+  return *f == 0 ? 1 : 0;
+#else
+  return fopen_s(f, path, flags);
+#endif
 }
 
 int main(int argc, char* argv[])
@@ -131,8 +144,8 @@ int main(int argc, char* argv[])
 
   //auto in = fopen(in_filename.c_str(), "rb");
   FILE* in;
-  if (fopen_s(&in, in_filename.c_str(), "rb") != 0) {
-    if (fopen_s(&in, (in_filename + ".czi").c_str(), "rb") != 0) return 1;
+  if (fileopen(&in, in_filename.c_str(), "rb") != 0) {
+    if (fileopen(&in, (in_filename + ".czi").c_str(), "rb") != 0) return 1;
   }
 
   //char buf[1024 * 1024];
@@ -273,7 +286,7 @@ int main(int argc, char* argv[])
     }
 
     FILE* out;
-    if (fopen_s(&out, (name + "_data.raw").c_str(), "wb") != 0) {
+    if (fileopen(&out, (name + "_data.raw").c_str(), "wb") != 0) {
       continue;
     }
     else {
