@@ -1,4 +1,16 @@
+/*
+ *
 
+How to get info:
+
+./rawer "/media/igor/Safari/SPIM_data/1x3 tile 100 section 2ch 50t/8.czi"
+
+How to dump one 3D image:
+
+./rawer "/media/igor/Safari/SPIM_data/1x3 tile 100 section 2ch 50t/8.czi" T60_C0_I0_V2
+
+ *
+ */
 
 //#include "copy_roi.h"
 
@@ -367,5 +379,13 @@ if (!dump) {
     }
   }
 
+if (bufSize == 0) {
+  std::cout << " - Images " << numFiles << " [" << sizeXYZ[0] << ", " << sizeXYZ[1] << ", " << sizeXYZ[2] << "] " << pixelSize * 8 << "bps" << std::endl;
+    for (i32 j = 0; j < 128; j++) {
+      if (dimWeigth[j] > 0 && dimSize[j] > 1) {
+        std::cout << (char)j << ": " << dimSize[j] << std::endl;
+      }
+    }
+}
   fclose(in);
 }
